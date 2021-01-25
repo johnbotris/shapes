@@ -4,9 +4,10 @@
 #![feature(box_syntax)]
 
 mod opt;
+mod ugen;
 
 use crate::opt::{getopts, Opts, Command};
-use core::f32::consts::PI;
+use crate::ugen::*;
 use std::{thread, time};
 
 use anyhow::{ anyhow, Result};
@@ -73,20 +74,16 @@ fn run(host: Host, opts: Opts) -> Result<!> {
 
 fn do_audio<T: Sample>(channel_count: usize, samplerate: f32, gain: f32) -> impl FnMut(&mut [T], &cpal::OutputCallbackInfo) -> () {
 
-    let mut ugens = [
-        SinUgen::new(220.0, 1.0, 0.0, samplerate),
-        SinUgen::new(220.1, 0.9, 0.0, samplerate),
-        SinUgen::new(220.2, 0.8, 0.0, samplerate),
-        SinUgen::new(220.3, 0.7, 0.0, samplerate),
-        SinUgen::new(220.4, 0.6, 0.0, samplerate),
-        SinUgen::new(220.5, 0.5, 0.0, samplerate),
-        SinUgen::new(220.6, 0.4, 0.0, samplerate),
-        SinUgen::new(220.7, 0.3, 0.0, samplerate),
-        SinUgen::new(220.8, 0.2, 0.0, samplerate),
-        SinUgen::new(220.9, 0.1, 0.0, samplerate),
-    ];
+    let base = 110.0;
+    let voices = 100;
+    let interval = 0.5;
 
-    let left = box(move |sample| {
+    let mut ugens: Vec<Box<dyn Ugen>> = (0 .. voices)
+        .map(|v| v as f32)
+        .map(|v| box(SinUgen::new(base + interval * v, v / voices as f32, 0.0, samplerate)) as Box<dyn Ugen>)
+        .collect();
+
+    let mut channel = box(move |sample| {
             let mut sum = 0.0;
             for ugen in &mut ugens {
                 sum += ugen.gen(sample);
@@ -94,10 +91,9 @@ fn do_audio<T: Sample>(channel_count: usize, samplerate: f32, gain: f32) -> impl
             sum
         });
 
-    let right = box(SinUgen::new(120.0, 1.0, 0.0, samplerate)); 
 
-    let mut channels: Vec<Box<dyn Ugen + Send>> = vec![ 
-        left, right
+    let mut channels: Vec<Box<dyn Ugen>> = vec![ 
+        channel 
     ];
 
     let master_gain = gain;
@@ -111,58 +107,8 @@ fn do_audio<T: Sample>(channel_count: usize, samplerate: f32, gain: f32) -> impl
                 };
                 *channel = Sample::from(&value)
             }
-            println!("{}", sample_counter);
             sample_counter += 1;
         }
-    }
-}
-
-/// Generates values of a given T
-trait Ugen {
-    /// Get the next value
-    fn gen(&mut self, sample: usize) -> f32;
-}
-
-impl<F> Ugen for F 
-where
-    F: FnMut(usize) -> f32
-{
-    fn gen(&mut self, sample: usize) -> f32 {
-        self(sample)
-    }
-}
-
-struct RandomUgen {}
-
-impl Ugen for RandomUgen {
-    fn gen(&mut self, _sample: usize) -> f32 {
-        rand::random::<f32>() * 2.0 - 1.0
-    }
-}
-
-
-struct SinUgen {
-    pub freq: f32,
-    pub amp: f32,
-    pub phase: f32,
-    samplerate: f32,
-}
-
-impl SinUgen {
-    fn new(freq: f32, amp: f32, phase: f32, samplerate: f32) -> Self {
-        SinUgen {
-            freq, 
-            amp, 
-            phase,
-            samplerate,
-        }
-    }
-}
-
-impl Ugen for SinUgen {
-    fn gen(&mut self, sample: usize) -> f32 {
-        let samples_per_cycle = sample % (self.samplerate / self.freq) as usize;
-        f32::sin(self.phase + (samples_per_cycle as f32) * self.freq * 2.0 * PI / (self.samplerate)) * self.amp 
     }
 }
 
