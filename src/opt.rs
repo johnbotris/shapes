@@ -12,7 +12,7 @@ pub struct Opts {
     #[structopt(short, long, default_value = "48000", parse(try_from_str = parse_sample_rate))]
     pub sample_rate: SampleRate,
 
-    #[structopt(short, long, default_value = "default")]
+    #[structopt(short, long, default_value = "pulse")]
     pub device: String,
 
 
@@ -37,16 +37,7 @@ pub enum Command {
 pub fn getopts() -> Result<Opts> {
     let opts = Opts::from_args();
 
-    if !supported_channel_count(opts.channels) {
-        return Err(anyhow!("Unsupported channel count {}", opts.channels));
-    }
-
     Ok(opts)
-}
-
-fn supported_channel_count(count: u16) -> bool {
-    count == 1 
-    || count == 2
 }
 
 fn parse_sample_rate(input: &str) -> Result<SampleRate> {
