@@ -2,12 +2,12 @@
 #![feature(trait_alias)]
 #![feature(never_type)]
 #![feature(box_syntax)]
+#![feature(destructuring_assignment)]
 
 mod opt;
-mod ugen;
 
+use core::f32::consts::PI;
 use crate::opt::{getopts, Opts, Command};
-use crate::ugen::*;
 use std::{thread, time};
 
 use anyhow::{ anyhow, Result};
@@ -74,41 +74,45 @@ fn run(host: Host, opts: Opts) -> Result<!> {
 
 fn do_audio<T: Sample>(channel_count: usize, samplerate: f32, gain: f32) -> impl FnMut(&mut [T], &cpal::OutputCallbackInfo) -> () {
 
-    let base = 110.0;
-    let voices = 100;
-    let interval = 0.5;
+    let audio = move |sample| {
+            let (mut left, mut right) = (0.0, 0.0);
+            let numvoices = 1;
+            let generator = (1 .. numvoices + 1)
+                .map(|v| (25.0, v as f32 / numvoices as f32))
+                .map(|(freq, amp)| vec_mul(circle(sample, freq, samplerate), amp));
 
-    let mut ugens: Vec<Box<dyn Ugen>> = (0 .. voices)
-        .map(|v| v as f32)
-        .map(|v| box(SinUgen::new(base + interval * v, v / voices as f32, 0.0, samplerate)) as Box<dyn Ugen>)
-        .collect();
-
-    let mut channel = box(move |sample| {
-            let mut sum = 0.0;
-            for ugen in &mut ugens {
-                sum += ugen.gen(sample);
+            for (l, r) in generator {
+                (left, right) = (left + l, right + r);
             }
-            sum
-        });
-
-
-    let mut channels: Vec<Box<dyn Ugen>> = vec![ 
-        channel 
-    ];
+            (left, right)
+        };
 
     let master_gain = gain;
     let mut sample_counter = 0;
     move |data: &mut [T], _info: &cpal::OutputCallbackInfo| {
-        for frame in data.chunks_mut(channel_count) {
-            for (idx, channel) in frame.iter_mut().enumerate() {
-                let value = match channels.get_mut(idx) {
-                    Some(ugen) => ugen.gen(sample_counter) * master_gain,
-                    None => 0.0
-                };
-                *channel = Sample::from(&value)
+        for frame in data.chunks_mut(2) {
+            let (l, r) = audio(sample_counter);
+
+            for (dst, src) in frame.iter_mut().zip(&[l, r]) {
+                *dst = Sample::from(&(src * master_gain))
             }
+
             sample_counter += 1;
         }
     }
+}
+
+fn vec_mul((x, y): (f32, f32), amt: f32) -> (f32, f32) {
+    (x * amt, y * amt)
+}
+
+fn circle(sample: u64, freq: f32, samplerate: f32) -> (f32, f32) {
+    let modsample = sample % (samplerate / freq) as u64;
+    let theta = 2.0 * PI * modsample as f32 * freq / samplerate;
+    (f32::sin(theta), f32::cos(theta))
+}
+
+fn binaural_beats(sample: u64, f1: f32, f2: f32, samplerate: f32) -> (f32, f32) {
+    (0.0, 0.0)
 }
 
