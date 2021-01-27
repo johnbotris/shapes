@@ -38,7 +38,7 @@ fn run(host: Host, opts: Opts) -> Result<!> {
     } else {
         host.output_devices()?
             .find(|d| d.name().map(|name| name == opts.device)
-              .unwrap_or(false))
+                  .unwrap_or(false))
     }.ok_or(anyhow!("Couldn't connect to device \"{}\"", opts.device))?;
 
     println!("connected to device: \"{}\"", device.name().unwrap_or(String::from("unknown")));
@@ -74,18 +74,21 @@ fn run(host: Host, opts: Opts) -> Result<!> {
 
 fn do_audio<T: Sample>(channel_count: usize, samplerate: f32, gain: f32) -> impl FnMut(&mut [T], &cpal::OutputCallbackInfo) -> () {
 
-    let audio = move |sample| {
-            let (mut left, mut right) = (0.0, 0.0);
-            let numvoices = 1;
-            let generator = (1 .. numvoices + 1)
-                .map(|v| (25.0, v as f32 / numvoices as f32))
-                .map(|(freq, amp)| vec_mul(circle(sample, freq, samplerate), amp));
 
-            for (l, r) in generator {
-                (left, right) = (left + l, right + r);
-            }
-            (left, right)
-        };
+    let audio = move |sample| {
+        // let (mut left, mut right) = (0.0, 0.0);
+        // let numvoices = 1;
+        // let generator = (1 .. numvoices + 1)
+        //     .map(|v| (125.0, v as f32 / numvoices as f32))
+        //     .map(|(freq, amp)| vec2::scale(square(phase(sample, samplerate, freq)), amp));
+        // for (l, r) in generator {
+        //     (left, right) = (left + l, right + r);
+        // }
+
+
+        let point = polygon(4.7, phase(sample, samplerate, 500.0));
+        vec2::scale(point, 0.5)
+    };
 
     let master_gain = gain;
     let mut sample_counter = 0;
@@ -102,17 +105,66 @@ fn do_audio<T: Sample>(channel_count: usize, samplerate: f32, gain: f32) -> impl
     }
 }
 
-fn vec_mul((x, y): (f32, f32), amt: f32) -> (f32, f32) {
-    (x * amt, y * amt)
+
+fn phase(sample: u64, samplerate: f32, freq: f32) -> f32 {
+    (sample % (samplerate / freq) as u64) as f32 * freq / samplerate
 }
 
-fn circle(sample: u64, freq: f32, samplerate: f32) -> (f32, f32) {
-    let modsample = sample % (samplerate / freq) as u64;
-    let theta = 2.0 * PI * modsample as f32 * freq / samplerate;
+fn circle(p: f32) -> Vec2 {
+    let theta = 2.0 * PI * p;
     (f32::sin(theta), f32::cos(theta))
 }
 
-fn binaural_beats(sample: u64, f1: f32, f2: f32, samplerate: f32) -> (f32, f32) {
+fn polygon(n: f32, p: f32) -> Vec2 {
+
+    let step = 1.0/ n;
+    let steps = p / step;
+    let current = steps.floor();
+    let current_p = step * current;
+    let progress = steps - current;
+    let next_p = current_p + step;
+    let c1 = circle(current_p);
+    let c2 = circle(next_p);
+    vec2::lerp(c1, c2, progress)
+}
+
+
+fn binaural_beats(sample: u64, f1: f32, f2: f32, samplerate: f32) -> Vec2 {
     (0.0, 0.0)
 }
 
+use vec2::{Vec2};
+
+mod vec2 {
+    pub type Vec2 = (f32, f32);
+
+    pub fn lerp(a: Vec2, b: Vec2, alpha: f32) -> Vec2 {
+        add(scale(a, alpha), scale(b, 1.0 - alpha))
+    }
+
+    pub fn add(a: Vec2, b: Vec2) -> Vec2 {
+        (a.0 + b.0, a.1 + b.1)
+    }
+
+    pub fn scale(v: Vec2, s: f32) -> Vec2 {
+        (v.0 * s, v.1 * s)
+    }
+
+}
+
+
+#[cfg(test)]
+mod test {
+
+    use super::*;
+    use super::vec2::*;
+
+    #[test]
+    fn squares() {
+
+        for i in 0 .. 50 {
+            square(i as f32/ 50.0);
+        }
+
+    }
+}
