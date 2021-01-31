@@ -103,6 +103,9 @@ fn main() {
         let devices = host.output_devices();
         match devices {
             Ok(devices) => {
+                // ALSA generates a fuckton of annoying and useless error output on startup.
+                // Maybe could be fixed through proper system configuration but if this is what happens with
+                // the default configuration it's probably better to just suppress
                 let _alsa_gag = gag::Gag::stderr().unwrap();
                 println!("Available audio outputs");
                 for (idx, device) in devices.enumerate() {
@@ -171,18 +174,7 @@ fn run(host: Host, opts: opts::Opts) -> Result<!> {
     let port_name = input.port_name(&port).unwrap_or(String::from("<unknown>"));
 
     let _connection = input
-        .connect(
-            &port,
-            MIDI_INPUT_NAME,
-            move |timestamp, message, _data| {
-                log::trace!(
-                    "Midi input received: timstamp: {}, message: {:?}",
-                    timestamp,
-                    message
-                );
-            },
-            (),
-        )
+        .connect(&port, MIDI_INPUT_NAME, handle_midi_input, ())
         .map_err(|e| {
             anyhow!(
                 "Couldn't connect to MIDI output port \"{}\": {}",
@@ -191,7 +183,7 @@ fn run(host: Host, opts: opts::Opts) -> Result<!> {
             )
         })?;
 
-    log::debug!("Getting midi input from {}", port_name);
+    log::info!("Reading MIDI input from {}", port_name);
 
     let device = {
         let _alsa_gag = gag::Gag::stderr().unwrap();
@@ -201,11 +193,14 @@ fn run(host: Host, opts: opts::Opts) -> Result<!> {
             host.output_devices()?
                 .find(|d| d.name().map(|name| name == opts.device).unwrap_or(false))
         }
-        .ok_or(anyhow!("Couldn't connect to device \"{}\"", opts.device))?
+        .ok_or(anyhow!(
+            "Couldn't connect to output device \"{}\"",
+            opts.device
+        ))?
     };
 
-    log::debug!(
-        "connected to device: \"{}\"",
+    log::info!(
+        "Outputting to \"{}\"",
         device.name().unwrap_or(String::from("unknown"))
     );
 
@@ -266,6 +261,14 @@ fn run(host: Host, opts: opts::Opts) -> Result<!> {
     loop {
         thread::sleep(time::Duration::from_secs(5));
     }
+}
+
+fn handle_midi_input(timestamp: u64, message: &[u8], data: &mut ()) {
+    log::trace!(
+        "Midi input received: timstamp: {}, message: {:?}",
+        timestamp,
+        message
+    );
 }
 
 fn do_audio<T: Sample>(
