@@ -5,7 +5,10 @@
 #![feature(destructuring_assignment)]
 #![feature(str_split_once)]
 
-use core::f32::consts::PI;
+pub mod opts;
+pub mod synthesis;
+pub mod vec2;
+
 use std::{thread, time};
 
 use anyhow::{anyhow, Result};
@@ -16,74 +19,6 @@ use cpal::{
 use midir::{MidiInput, MidiInputPort};
 
 const MIDI_INPUT_NAME: &str = env!("CARGO_PKG_NAME");
-
-mod opts {
-    use anyhow::Result;
-    use cpal::{ChannelCount, SampleRate};
-    use std::str::FromStr;
-    use structopt::StructOpt;
-
-    #[derive(StructOpt, Debug)]
-    #[structopt(about)]
-    pub struct Opts {
-        /// How many output channels
-        #[structopt(short, long, default_value = "2")]
-        pub channels: ChannelCount,
-
-        #[structopt(short, long, default_value = "48000", parse(try_from_str = parse_sample_rate))]
-        pub sample_rate: SampleRate,
-
-        /// Number of available voices.
-        /// When unison mode is "unison", 0 will generate a single voice
-        /// when unison mode is "poly", 0 will allow unlimited voices
-        #[structopt(short = "o", long, default_value = "0")]
-        pub voices: u64,
-
-        #[structopt(short, long, parse(try_from_str), default_value = "unison")]
-        pub unison_mode: super::UnisonMode,
-
-        /// Output device to connect to
-        #[structopt(short, long, default_value = "pulse")]
-        pub device: String,
-
-        /// Name of the MIDI input port to connect to
-        #[structopt(short = "p", long)]
-        pub port_name: Option<String>,
-
-        /// Index of the MIDI input port to connect to
-        #[structopt(short = "i", long)]
-        pub port_index: Option<usize>,
-
-        /// Master gain factor
-        #[structopt(short = "g", long, default_value = "0.5")]
-        pub master_gain: f32,
-
-        /// List available audio output devices then exit
-        #[structopt(long)]
-        pub list_outputs: bool,
-
-        /// List available MIDI input ports then exit
-        #[structopt(long)]
-        pub list_inputs: bool,
-
-        /// Output more information, can be passed multiple times
-        #[structopt(short, parse(from_occurrences))]
-        pub verbose: u64,
-
-        /// Output less information, can be passed multiple times
-        #[structopt(short, parse(from_occurrences))]
-        pub quiet: u64,
-    }
-
-    /// Get and also validate CLI options
-    pub fn getopts() -> Opts {
-        Opts::from_args()
-    }
-
-    fn parse_sample_rate(input: &str) -> Result<SampleRate> {
-        Ok(SampleRate(u32::from_str(input)?))
-    }
-}
 
 fn init_logging(opts: &opts::Opts) {
     use log::LevelFilter::*;
@@ -161,7 +96,7 @@ fn run(host: Host, opts: opts::Opts) -> Result<!> {
     let mut input = MidiInput::new(MIDI_INPUT_NAME)?;
     input.ignore(midir::Ignore::None);
     let ports: &[MidiInputPort] = &input.ports();
-    let port = if let Some(name) = &opts.port_name {
+    let port = if let Some(name) = &opts.midi_port {
         log::debug!("Connecting to port with name {}", name);
         ports
             .iter()
@@ -172,7 +107,7 @@ fn run(host: Host, opts: opts::Opts) -> Result<!> {
                     .unwrap_or(false)
             })
             .ok_or(anyhow!("No MIDI port named {}", name))?
-    } else if let Some(index) = opts.port_index {
+    } else if let Some(index) = opts.midi_port_index {
         log::debug!("Connecting to port with index {}", index);
         ports
             .get(index)
@@ -290,6 +225,7 @@ fn do_audio<T: Sample>(
     samplerate: f32,
     gain: f32,
 ) -> impl FnMut(&mut [T], &cpal::OutputCallbackInfo) -> () {
+    use synthesis::*;
     let audio = move |sample| {
         let point = polygon(4.7, phase(sample, samplerate, 500.0));
         vec2::scale(point, 0.5)
@@ -306,79 +242,6 @@ fn do_audio<T: Sample>(
             }
 
             sample_counter += 1;
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum UnisonMode {
-    Unison,
-    Poly,
-}
-
-impl std::str::FromStr for UnisonMode {
-    type Err = anyhow::Error;
-    fn from_str(s: &str) -> Result<UnisonMode> {
-        match s.to_lowercase().as_str() {
-            "u" | "unison" => Ok(UnisonMode::Unison),
-            "p" | "poly" | "polyphonic" => Ok(UnisonMode::Poly),
-            _ => Err(anyhow!("Invalid value \"{}\" for UnisonMode", s)),
-        }
-    }
-}
-
-fn phase(sample: u64, samplerate: f32, freq: f32) -> f32 {
-    (sample % (samplerate / freq) as u64) as f32 * freq / samplerate
-}
-
-fn circle(p: f32) -> Vec2 {
-    let theta = 2.0 * PI * p;
-    (f32::sin(theta), f32::cos(theta))
-}
-
-fn polygon(n: f32, p: f32) -> Vec2 {
-    let step = 1.0 / n;
-    let steps = p / step;
-    let current = steps.floor();
-    let current_p = step * current;
-    let progress = steps - current;
-    let next_p = current_p + step;
-    let c1 = circle(current_p);
-    let c2 = circle(next_p);
-    vec2::lerp(c1, c2, progress)
-}
-
-fn binaural_beats(sample: u64, f1: f32, f2: f32, samplerate: f32) -> Vec2 {
-    (0.0, 0.0)
-}
-
-use vec2::Vec2;
-
-mod vec2 {
-    pub type Vec2 = (f32, f32);
-
-    pub fn lerp(a: Vec2, b: Vec2, alpha: f32) -> Vec2 {
-        add(scale(a, alpha), scale(b, 1.0 - alpha))
-    }
-
-    pub fn add(a: Vec2, b: Vec2) -> Vec2 {
-        (a.0 + b.0, a.1 + b.1)
-    }
-
-    pub fn scale(v: Vec2, s: f32) -> Vec2 {
-        (v.0 * s, v.1 * s)
-    }
-}
-
-#[cfg(test)]
-mod test {
-
-    use super::{vec2::*, *};
-
-    #[test]
-    fn squares() {
-        for i in 0..50 {
-            square(i as f32 / 50.0);
         }
     }
 }

@@ -8,12 +8,12 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.38"
-cpal = { version = "0.13.0", features = [ "jack" ] }
+anyhow = "1.0"
+cpal = { version = "0.13", features = [ "jack" ] }
 structopt = "0.3"
 rand = "0.8"
-midir = "0.7.0"
-wmidi = "4.0.2"
+midir = "0.7"
+wmidi = "4.0"
 simple_logger = "1.11"
-log = "0.4.14"
+log = "0.4"
 gag = "0.1"
