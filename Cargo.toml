@@ -1,5 +1,5 @@
 [package]
-name = "shapesynth"
+name = "shapes"
 description = "A synth made of shapes"
 version = "0.1.0"
 authors = ["John <johnmorris@tuta.io>"]
