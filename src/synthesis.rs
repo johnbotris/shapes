@@ -22,10 +22,13 @@ impl LinearPluck {
     }
 
     pub fn level(&self, now: Instant) -> f32 {
-        let elapsed = now - self.triggered;
+        let elapsed = match now.checked_duration_since(self.triggered) {
+            Some(elapsed) => elapsed,
+            None => return 0.0,
+        };
         match elapsed.as_millis() {
             0 => 1.0,
-            millis => self.release.as_millis() as f32 / millis as f32,
+            millis => f32::max(1.0 - millis as f32 / self.release.as_millis() as f32, 0.0),
         }
     }
 }

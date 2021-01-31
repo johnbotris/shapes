@@ -9,7 +9,10 @@ pub mod opts;
 pub mod synthesis;
 pub mod vec2;
 
-use std::{thread, time};
+use std::{
+    thread,
+    time::{self, Duration, Instant},
+};
 
 use anyhow::{anyhow, Result};
 use cpal::{
@@ -231,14 +234,20 @@ fn do_audio<T: Sample>(
         vec2::scale(point, 0.5)
     };
 
+    let mut envelope = LinearPluck::new(Duration::from_secs(1));
+
     let master_gain = gain;
     let mut sample_counter = 0;
     move |data: &mut [T], _info: &cpal::OutputCallbackInfo| {
         for frame in data.chunks_mut(2) {
             let (l, r) = audio(sample_counter);
-
+            let now = Instant::now();
+            let amp = envelope.level(now);
+            if amp == 0.0 {
+                envelope.trigger(now);
+            }
             for (dst, src) in frame.iter_mut().zip(&[l, r]) {
-                *dst = Sample::from(&(src * master_gain))
+                *dst = Sample::from(&(src * amp * master_gain))
             }
 
             sample_counter += 1;
