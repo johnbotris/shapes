@@ -4,19 +4,63 @@
 #![feature(box_syntax)]
 #![feature(destructuring_assignment)]
 
-mod opt;
-
+use crate::opt::{getopts, Command, Opts};
 use core::f32::consts::PI;
-use crate::opt::{getopts, Opts, Command};
 use std::{thread, time};
 
-use anyhow::{ anyhow, Result};
-use cpal::traits::{HostTrait, DeviceTrait, StreamTrait};
-use cpal::{Sample, SampleFormat, StreamConfig, Host, Device};
+use anyhow::{anyhow, Result};
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::{Device, Host, Sample, SampleFormat, StreamConfig};
+
+mod opts {
+    use anyhow::{anyhow, Result};
+    use cpal::{ChannelCount, SampleRate};
+    use std::str::FromStr;
+    use structopt::StructOpt;
+
+    #[derive(StructOpt, Debug)]
+    #[structopt(about)]
+    pub struct Opts {
+        /// How many output channels
+        #[structopt(short, long, default_value = "2")]
+        pub channels: ChannelCount,
+
+        #[structopt(short, long, default_value = "48000", parse(try_from_str = parse_sample_rate))]
+        pub sample_rate: SampleRate,
+
+        #[structopt(short, long, default_value = "pulse")]
+        pub device: String,
+
+        #[structopt(subcommand)]
+        pub command: Option<Command>,
+
+        /// Output gain level
+        #[structopt(short, long, default_value = "0.5")]
+        pub gain: f32,
+    }
+
+    #[derive(StructOpt, Debug)]
+    pub enum Command {
+        /// [Default]
+        Run,
+
+        ListDevices,
+    }
+
+    /// Get and also validate CLI options
+    pub fn getopts() -> Opts {
+        let opts = Opts::from_args();
+
+        opts
+    }
+
+    fn parse_sample_rate(input: &str) -> Result<SampleRate> {
+        Ok(SampleRate(u32::from_str(input)?))
+    }
+}
 
 fn main() -> Result<()> {
-
-    let opts = getopts()?;
+    let opts = getopts();
 
     let host = cpal::default_host();
 
@@ -24,33 +68,42 @@ fn main() -> Result<()> {
         Some(Command::Run) | None => run(host, opts)?,
         Some(Command::ListDevices) => {
             for (idx, device) in host.output_devices()?.enumerate() {
-                println!("{}: {}", idx, device.name().unwrap_or("unknown".to_string()));
+                println!(
+                    "{}: {}",
+                    idx,
+                    device.name().unwrap_or("unknown".to_string())
+                );
             }
             Ok(())
-        },
+        }
     }
 }
 
 fn run(host: Host, opts: Opts) -> Result<!> {
-
     let device = if opts.device == "default" {
         host.default_output_device()
     } else {
         host.output_devices()?
-            .find(|d| d.name().map(|name| name == opts.device)
-                  .unwrap_or(false))
-    }.ok_or(anyhow!("Couldn't connect to device \"{}\"", opts.device))?;
+            .find(|d| d.name().map(|name| name == opts.device).unwrap_or(false))
+    }
+    .ok_or(anyhow!("Couldn't connect to device \"{}\"", opts.device))?;
 
-    println!("connected to device: \"{}\"", device.name().unwrap_or(String::from("unknown")));
+    println!(
+        "connected to device: \"{}\"",
+        device.name().unwrap_or(String::from("unknown"))
+    );
 
-    let supported_config = device.supported_output_configs()?
+    let supported_config = device
+        .supported_output_configs()?
         .filter(|config| config.sample_format() == SampleFormat::F32)
-        .filter(|config| config.min_sample_rate() <= opts.sample_rate && config.max_sample_rate() >= opts.sample_rate)
+        .filter(|config| {
+            config.min_sample_rate() <= opts.sample_rate
+                && config.max_sample_rate() >= opts.sample_rate
+        })
         .find(|config| config.channels() == opts.channels)
         .map(|config| config.with_sample_rate(opts.sample_rate))
         .or(device.default_output_config().ok())
         .ok_or(anyhow!("no supported output device config"))?;
-
 
     let sample_format = supported_config.sample_format();
     let config = supported_config.config();
@@ -61,9 +114,33 @@ fn run(host: Host, opts: Opts) -> Result<!> {
 
     let errfun = |err| eprintln!("an error occurred on the output audio stream: {}", err);
     let stream = match sample_format {
-        SampleFormat::F32 => device.build_output_stream(&config, do_audio::<f32>(config.channels as usize, config.sample_rate.0 as f32, opts.gain), errfun),
-        SampleFormat::I16 => device.build_output_stream(&config, do_audio::<i16>(config.channels as usize, config.sample_rate.0 as f32, opts.gain), errfun), // run::<i16>(device, config)?,
-        SampleFormat::U16 => device.build_output_stream(&config, do_audio::<u16>(config.channels as usize, config.sample_rate.0 as f32, opts.gain), errfun), // run::<u16>(device, config)?,
+        SampleFormat::F32 => device.build_output_stream(
+            &config,
+            do_audio::<f32>(
+                config.channels as usize,
+                config.sample_rate.0 as f32,
+                opts.gain,
+            ),
+            errfun,
+        ),
+        SampleFormat::I16 => device.build_output_stream(
+            &config,
+            do_audio::<i16>(
+                config.channels as usize,
+                config.sample_rate.0 as f32,
+                opts.gain,
+            ),
+            errfun,
+        ), // run::<i16>(device, config)?,
+        SampleFormat::U16 => device.build_output_stream(
+            &config,
+            do_audio::<u16>(
+                config.channels as usize,
+                config.sample_rate.0 as f32,
+                opts.gain,
+            ),
+            errfun,
+        ), // run::<u16>(device, config)?,
     }?;
 
     stream.play()?;
@@ -72,9 +149,11 @@ fn run(host: Host, opts: Opts) -> Result<!> {
     }
 }
 
-fn do_audio<T: Sample>(channel_count: usize, samplerate: f32, gain: f32) -> impl FnMut(&mut [T], &cpal::OutputCallbackInfo) -> () {
-
-
+fn do_audio<T: Sample>(
+    channel_count: usize,
+    samplerate: f32,
+    gain: f32,
+) -> impl FnMut(&mut [T], &cpal::OutputCallbackInfo) -> () {
     let audio = move |sample| {
         // let (mut left, mut right) = (0.0, 0.0);
         // let numvoices = 1;
@@ -84,7 +163,6 @@ fn do_audio<T: Sample>(channel_count: usize, samplerate: f32, gain: f32) -> impl
         // for (l, r) in generator {
         //     (left, right) = (left + l, right + r);
         // }
-
 
         let point = polygon(4.7, phase(sample, samplerate, 500.0));
         vec2::scale(point, 0.5)
@@ -105,7 +183,6 @@ fn do_audio<T: Sample>(channel_count: usize, samplerate: f32, gain: f32) -> impl
     }
 }
 
-
 fn phase(sample: u64, samplerate: f32, freq: f32) -> f32 {
     (sample % (samplerate / freq) as u64) as f32 * freq / samplerate
 }
@@ -116,8 +193,7 @@ fn circle(p: f32) -> Vec2 {
 }
 
 fn polygon(n: f32, p: f32) -> Vec2 {
-
-    let step = 1.0/ n;
+    let step = 1.0 / n;
     let steps = p / step;
     let current = steps.floor();
     let current_p = step * current;
@@ -128,12 +204,11 @@ fn polygon(n: f32, p: f32) -> Vec2 {
     vec2::lerp(c1, c2, progress)
 }
 
-
 fn binaural_beats(sample: u64, f1: f32, f2: f32, samplerate: f32) -> Vec2 {
     (0.0, 0.0)
 }
 
-use vec2::{Vec2};
+use vec2::Vec2;
 
 mod vec2 {
     pub type Vec2 = (f32, f32);
@@ -149,22 +224,18 @@ mod vec2 {
     pub fn scale(v: Vec2, s: f32) -> Vec2 {
         (v.0 * s, v.1 * s)
     }
-
 }
-
 
 #[cfg(test)]
 mod test {
 
-    use super::*;
     use super::vec2::*;
+    use super::*;
 
     #[test]
     fn squares() {
-
-        for i in 0 .. 50 {
-            square(i as f32/ 50.0);
+        for i in 0..50 {
+            square(i as f32 / 50.0);
         }
-
     }
 }
