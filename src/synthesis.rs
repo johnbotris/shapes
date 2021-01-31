@@ -26,9 +26,10 @@ impl LinearPluck {
             Some(elapsed) => elapsed,
             None => return 0.0,
         };
-        match elapsed.as_millis() {
-            0 => 1.0,
-            millis => f32::max(1.0 - millis as f32 / self.release.as_millis() as f32, 0.0),
+
+        match elapsed.as_secs_f32() {
+            secs if secs < f32::EPSILON => 1.0,
+            secs => f32::max(1.0 - (secs / self.release.as_secs_f32()), 0.0),
         }
     }
 }
@@ -57,6 +58,12 @@ pub fn phase(sample: u64, samplerate: f32, freq: f32) -> f32 {
 pub fn circle(p: f32) -> Vec2 {
     let theta = 2.0 * PI * p;
     (f32::sin(theta), f32::cos(theta))
+}
+
+pub fn sin(p: f32) -> Vec2 {
+    let theta = 2.0 * PI * p;
+    let v = f32::sin(theta);
+    (v, v)
 }
 
 pub fn polygon(n: f32, p: f32) -> Vec2 {
