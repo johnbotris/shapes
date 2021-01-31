@@ -33,6 +33,15 @@ mod opts {
         #[structopt(short, long, default_value = "48000", parse(try_from_str = parse_sample_rate))]
         pub sample_rate: SampleRate,
 
+        /// Number of available voices.
+        /// When unison mode is "unison", 0 will generate a single voice
+        /// when unison mode is "poly", 0 will allow unlimited voices
+        #[structopt(short = "o", long, default_value = "0")]
+        pub voices: u64,
+
+        #[structopt(short, long, parse(try_from_str), default_value = "unison")]
+        pub unison_mode: super::UnisonMode,
+
         /// Output device to connect to
         #[structopt(short, long, default_value = "pulse")]
         pub device: String,
@@ -46,8 +55,8 @@ mod opts {
         pub port_index: Option<usize>,
 
         /// Master gain factor
-        #[structopt(short, long, default_value = "0.5")]
-        pub gain: f32,
+        #[structopt(short = "g", long, default_value = "0.5")]
+        pub master_gain: f32,
 
         /// List available audio output devices then exit
         #[structopt(long)]
@@ -156,7 +165,12 @@ fn run(host: Host, opts: opts::Opts) -> Result<!> {
         log::debug!("Connecting to port with name {}", name);
         ports
             .iter()
-            .find(|port| input.port_name(port) == Ok(name.clone()))
+            .find(|port| {
+                input
+                    .port_name(port)
+                    .map(|port_name| port_name.starts_with(name))
+                    .unwrap_or(false)
+            })
             .ok_or(anyhow!("No MIDI port named {}", name))?
     } else if let Some(index) = opts.port_index {
         log::debug!("Connecting to port with index {}", index);
@@ -233,7 +247,7 @@ fn run(host: Host, opts: opts::Opts) -> Result<!> {
             do_audio::<f32>(
                 config.channels as usize,
                 config.sample_rate.0 as f32,
-                opts.gain,
+                opts.master_gain,
             ),
             errfun,
         ),
@@ -242,7 +256,7 @@ fn run(host: Host, opts: opts::Opts) -> Result<!> {
             do_audio::<i16>(
                 config.channels as usize,
                 config.sample_rate.0 as f32,
-                opts.gain,
+                opts.master_gain,
             ),
             errfun,
         ), // run::<i16>(device, config)?,
@@ -251,7 +265,7 @@ fn run(host: Host, opts: opts::Opts) -> Result<!> {
             do_audio::<u16>(
                 config.channels as usize,
                 config.sample_rate.0 as f32,
-                opts.gain,
+                opts.master_gain,
             ),
             errfun,
         ), // run::<u16>(device, config)?,
@@ -277,15 +291,6 @@ fn do_audio<T: Sample>(
     gain: f32,
 ) -> impl FnMut(&mut [T], &cpal::OutputCallbackInfo) -> () {
     let audio = move |sample| {
-        // let (mut left, mut right) = (0.0, 0.0);
-        // let numvoices = 1;
-        // let generator = (1 .. numvoices + 1)
-        //     .map(|v| (125.0, v as f32 / numvoices as f32))
-        //     .map(|(freq, amp)| vec2::scale(square(phase(sample, samplerate, freq)), amp));
-        // for (l, r) in generator {
-        //     (left, right) = (left + l, right + r);
-        // }
-
         let point = polygon(4.7, phase(sample, samplerate, 500.0));
         vec2::scale(point, 0.5)
     };
@@ -301,6 +306,23 @@ fn do_audio<T: Sample>(
             }
 
             sample_counter += 1;
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum UnisonMode {
+    Unison,
+    Poly,
+}
+
+impl std::str::FromStr for UnisonMode {
+    type Err = anyhow::Error;
+    fn from_str(s: &str) -> Result<UnisonMode> {
+        match s.to_lowercase().as_str() {
+            "u" | "unison" => Ok(UnisonMode::Unison),
+            "p" | "poly" | "polyphonic" => Ok(UnisonMode::Poly),
+            _ => Err(anyhow!("Invalid value \"{}\" for UnisonMode", s)),
         }
     }
 }
