@@ -4,26 +4,23 @@
 #![feature(box_syntax)]
 #![feature(destructuring_assignment)]
 #![feature(str_split_once)]
-#![feature(min_const_generics)]
 
-pub mod opts;
-pub mod synthesis;
-pub mod vec2;
+mod engine;
+mod fixed_point;
+mod opts;
+mod queue;
+mod synthesis;
+mod util;
+mod vec2;
 
-use std::convert::TryFrom;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::Arc;
 use std::thread;
-use std::time::{self, Duration, Instant};
 
 use anyhow::{anyhow, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{Host, Sample, SampleFormat};
+use cpal::{Host, SampleFormat};
 use midir::{MidiInput, MidiInputPort};
-use wmidi::{MidiMessage, Note};
 
 const MIDI_INPUT_NAME: &str = env!("CARGO_PKG_NAME");
-const MAX_VOICES: usize = 64;
 
 fn init_logging(opts: &opts::Opts) {
     use log::LevelFilter::*;
@@ -165,20 +162,21 @@ fn run(host: Host, opts: opts::Opts) -> Result<!> {
 
     let sample_format = supported_config.sample_format();
     let config = supported_config.config();
+    let buffer_size = supported_config.buffer_size();
 
     log::info!("channels: {}", config.channels);
     log::info!("sample rate: {}", config.sample_rate.0);
     log::info!("sample format: {:?}", sample_format);
-
-    let mut shared_state = Arc::new(SharedState::new());
+    log::info!(
+        "buffer size: {}",
+        match buffer_size {
+            cpal::SupportedBufferSize::Range { min, max } => format!("min {}, max {}", min, max),
+            cpal::SupportedBufferSize::Unknown => "unknown".to_string(),
+        }
+    );
 
     let _connection = input
-        .connect(
-            &port,
-            MIDI_INPUT_NAME,
-            handle_midi_input,
-            InputState::new(shared_state.clone()),
-        )
+        .connect(&port, MIDI_INPUT_NAME, engine::handle_midi_input, ())
         .map_err(|e| {
             anyhow!(
                 "Couldn't connect to MIDI output port \"{}\": {}",
@@ -191,31 +189,28 @@ fn run(host: Host, opts: opts::Opts) -> Result<!> {
     let stream = match sample_format {
         SampleFormat::F32 => device.build_output_stream(
             &config,
-            do_audio::<f32>(
+            engine::do_audio::<f32>(
                 config.channels as usize,
-                config.sample_rate.0 as f32,
+                config.sample_rate,
                 opts.master_gain,
-                shared_state,
             ),
             errfun,
         ),
         SampleFormat::I16 => device.build_output_stream(
             &config,
-            do_audio::<i16>(
+            engine::do_audio::<i16>(
                 config.channels as usize,
-                config.sample_rate.0 as f32,
+                config.sample_rate,
                 opts.master_gain,
-                shared_state,
             ),
             errfun,
         ),
         SampleFormat::U16 => device.build_output_stream(
             &config,
-            do_audio::<u16>(
+            engine::do_audio::<u16>(
                 config.channels as usize,
-                config.sample_rate.0 as f32,
+                config.sample_rate,
                 opts.master_gain,
-                shared_state,
             ),
             errfun,
         ),
@@ -223,113 +218,7 @@ fn run(host: Host, opts: opts::Opts) -> Result<!> {
 
     stream.play()?;
     loop {
-        thread::sleep(time::Duration::from_secs(5));
+        thread::park();
+        log::trace!("main thread unparked");
     }
-}
-
-fn handle_midi_input(timestamp: u64, message: &[u8], state: &mut InputState) {
-    log::trace!(
-        "Midi input received: timstamp: {}, message: {:?}",
-        timestamp,
-        message
-    );
-
-    let midi = match MidiMessage::try_from(message) {
-        Ok(msg) => msg,
-        Err(err) => {
-            log::warn!("Error parsing MIDI message: {}", err);
-            return;
-        }
-    };
-
-    match midi {
-        MidiMessage::NoteOn(channel, note, velocity) => {
-            state.last_note = note;
-            let frequency = note.to_freq_f32() * FIXED_POINT_SCALE as f32;
-            state
-                .shared
-                .frequency
-                .store(frequency as u32, Ordering::Release);
-            state.shared.open.store(true, Ordering::Release);
-        }
-        MidiMessage::NoteOff(channel, note, velocity) => {
-            if note == state.last_note {
-                state.shared.open.store(false, Ordering::Release);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn do_audio<T: Sample>(
-    channel_count: usize,
-    samplerate: f32,
-    gain: f32,
-    state: Arc<SharedState>,
-) -> impl FnMut(&mut [T], &cpal::OutputCallbackInfo) -> () {
-    use synthesis::*;
-
-    let mut gate_sample = 0;
-    let mut level = 1.0;
-    let mut audio = move |sample| {
-        let open = state.open.load(Ordering::Acquire);
-        if open {
-            let frequency =
-                state.frequency.load(Ordering::Acquire) as f32 / FIXED_POINT_SCALE as f32;
-            let point = circle(phase(gate_sample, samplerate, frequency));
-            let (l, r) = vec2::scale(point, level);
-            gate_sample += 1;
-            (l, r)
-        } else {
-            gate_sample = 0;
-            (0.0, 0.0)
-        }
-    };
-
-    let master_gain = gain;
-    let mut sample_counter = 0;
-    move |data: &mut [T], _info: &cpal::OutputCallbackInfo| {
-        for frame in data.chunks_mut(2) {
-            let (l, r) = audio(sample_counter);
-            for (dst, src) in frame.iter_mut().zip(&[l, r]) {
-                *dst = Sample::from(&(src * master_gain))
-            }
-            sample_counter += 1;
-        }
-    }
-}
-
-const FIXED_POINT_SCALE: u32 = 1000;
-
-struct InputState {
-    pub shared: Arc<SharedState>,
-    pub last_note: Note,
-}
-
-impl InputState {
-    pub fn new(shared: Arc<SharedState>) -> Self {
-        Self {
-            shared,
-            last_note: Note::C1,
-        }
-    }
-}
-
-struct SharedState {
-    pub voices: Voices,
-}
-
-impl SharedState {
-    pub fn new(voices: Voices) -> Self {
-        Self { voices }
-    }
-}
-
-struct Voice {
-    pub note: AtomicU32,
-    pub gate: AtomicBool,
-}
-
-struct Voices {
-    voices: [Voice; MAX_VOICES],
 }

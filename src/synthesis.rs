@@ -1,36 +1,15 @@
-use anyhow::{anyhow, Result};
-use core::f32::consts::PI;
-use std::time::{Duration, Instant};
-
+use crate::util::SampleCounter;
 use crate::vec2::{self, Vec2};
 
-pub struct LinearPluck {
-    pub release: Duration,
-    triggered: Instant,
-}
+use anyhow::{anyhow, Result};
+use core::f32::consts::PI;
 
-impl LinearPluck {
-    pub fn new(release: Duration) -> Self {
-        Self {
-            release,
-            triggered: Instant::now() + release,
-        }
-    }
+pub mod envelope {
+    use super::SampleCounter;
+    use std::time::Duration;
 
-    pub fn trigger(&mut self, now: Instant) {
-        self.triggered = now
-    }
-
-    pub fn level(&self, now: Instant) -> f32 {
-        let elapsed = match now.checked_duration_since(self.triggered) {
-            Some(elapsed) => elapsed,
-            None => return 0.0,
-        };
-
-        match elapsed.as_secs_f32() {
-            secs if secs < f32::EPSILON => 1.0,
-            secs => f32::max(1.0 - (secs / self.release.as_secs_f32()), 0.0),
-        }
+    pub fn linear_pluck(release: Duration, counter: SampleCounter) -> f32 {
+        f32::max(1.0 - (counter.get_secs() / release.as_secs_f32()), 0.0)
     }
 }
 
@@ -51,8 +30,8 @@ impl std::str::FromStr for UnisonMode {
     }
 }
 
-pub fn phase(sample: u64, samplerate: f32, freq: f32) -> f32 {
-    (sample % (samplerate / freq) as u64) as f32 * freq / samplerate
+pub fn phase(freq: f32, counter: SampleCounter) -> f32 {
+    (counter.sample() % (counter.samplerate() / freq) as u64) as f32 * freq / counter.samplerate()
 }
 
 pub fn circle(p: f32) -> Vec2 {
