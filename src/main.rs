@@ -145,33 +145,23 @@ fn run(host: Host, opts: opts::Opts) -> Result<!> {
         device.name().unwrap_or(String::from("unknown"))
     );
 
-    let supported_config = {
-        let _alsa_gag = gag::Gag::stderr().unwrap();
-        device
-            .supported_output_configs()?
-            .filter(|config| config.sample_format() == SampleFormat::F32)
-            .filter(|config| {
-                config.min_sample_rate() <= opts.sample_rate
-                    && config.max_sample_rate() >= opts.sample_rate
-            })
-            .find(|config| config.channels() == opts.channels)
-            .map(|config| config.with_sample_rate(opts.sample_rate))
-            .or(device.default_output_config().ok())
-            .ok_or(anyhow!("no supported output device config"))?
+    // TODO make fallback options? or just error out if not supported config
+    let config = cpal::StreamConfig {
+        channels: opts.channels,
+        sample_rate: opts.sample_rate,
+        buffer_size: match opts.buffer_size {
+            Some(frames) => cpal::BufferSize::Fixed(frames),
+            None => cpal::BufferSize::Default,
+        },
     };
-
-    let sample_format = supported_config.sample_format();
-    let config = supported_config.config();
-    let buffer_size = supported_config.buffer_size();
 
     log::info!("channels: {}", config.channels);
     log::info!("sample rate: {}", config.sample_rate.0);
-    log::info!("sample format: {:?}", sample_format);
     log::info!(
         "buffer size: {}",
-        match buffer_size {
-            cpal::SupportedBufferSize::Range { min, max } => format!("min {}, max {}", min, max),
-            cpal::SupportedBufferSize::Unknown => "unknown".to_string(),
+        match config.buffer_size {
+            cpal::BufferSize::Fixed(frames) => frames.to_string(),
+            cpal::BufferSize::Default => "default".to_string(),
         }
     );
 
@@ -186,35 +176,15 @@ fn run(host: Host, opts: opts::Opts) -> Result<!> {
         })?;
 
     let errfun = |err| log::warn!("an error occurred on the output audio stream: {}", err);
-    let stream = match sample_format {
-        SampleFormat::F32 => device.build_output_stream(
-            &config,
-            engine::do_audio::<f32>(
-                config.channels as usize,
-                config.sample_rate,
-                opts.master_gain,
-            ),
-            errfun,
+    let stream = device.build_output_stream(
+        &config,
+        engine::do_audio::<f32>(
+            config.channels as usize,
+            config.sample_rate,
+            opts.master_gain,
         ),
-        SampleFormat::I16 => device.build_output_stream(
-            &config,
-            engine::do_audio::<i16>(
-                config.channels as usize,
-                config.sample_rate,
-                opts.master_gain,
-            ),
-            errfun,
-        ),
-        SampleFormat::U16 => device.build_output_stream(
-            &config,
-            engine::do_audio::<u16>(
-                config.channels as usize,
-                config.sample_rate,
-                opts.master_gain,
-            ),
-            errfun,
-        ),
-    }?;
+        errfun,
+    )?;
 
     stream.play()?;
     loop {

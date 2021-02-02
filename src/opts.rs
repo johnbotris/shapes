@@ -10,8 +10,12 @@ pub struct Opts {
     #[structopt(short, long, default_value = "2")]
     pub channels: ChannelCount,
 
-    #[structopt(short, long, default_value = "48000", parse(try_from_str = parse_sample_rate))]
+    #[structopt(short, long, default_value = "44100", parse(try_from_str = parse_sample_rate))]
     pub sample_rate: SampleRate,
+
+    /// Audio buffer size, will use system default if unspecified
+    #[structopt(short, long)]
+    pub buffer_size: Option<u32>,
 
     /// Number of available voices.
     ///     When unison mode is "unison", 0 will generate a single voice.
