@@ -146,8 +146,9 @@ fn run(host: Host, opts: opts::Opts) -> Result<!> {
     );
 
     // TODO make fallback options? or just error out if not supported config
+    // TODO Ok yeah we definitely should validate before this point, alsa just spits out "INVALID ARGUMENT >:("
     let config = cpal::StreamConfig {
-        channels: opts.channels,
+        channels: 2,
         sample_rate: opts.sample_rate,
         buffer_size: match opts.buffer_size {
             Some(frames) => cpal::BufferSize::Fixed(frames),

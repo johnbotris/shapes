@@ -6,7 +6,7 @@ use structopt::StructOpt;
 #[derive(StructOpt, Debug)]
 #[structopt(about)]
 pub struct Opts {
-    /// How many output channels
+    /// How many output channels. Currently ignored. Always 2
     #[structopt(short, long, default_value = "2")]
     pub channels: ChannelCount,
 
