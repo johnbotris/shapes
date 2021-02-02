@@ -1,4 +1,3 @@
-#[derive(Copy, Clone)]
 pub struct SampleCounter {
     sample: u64,
     samplerate: u32,

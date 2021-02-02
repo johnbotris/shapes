@@ -8,8 +8,17 @@ pub mod envelope {
     use super::SampleCounter;
     use std::time::Duration;
 
-    pub fn linear_pluck(release: Duration, counter: SampleCounter) -> f32 {
-        f32::max(1.0 - (counter.get_secs() / release.as_secs_f32()), 0.0)
+    const PLUCK_RAMP: f32 = 0.005;
+
+    pub fn linear_pluck(release: Duration, counter: &SampleCounter) -> f32 {
+        let elapsed = counter.get_secs();
+        if elapsed <= PLUCK_RAMP {
+            // Attack
+            elapsed / PLUCK_RAMP
+        } else {
+            // Release
+            f32::max(1.0 - (elapsed - PLUCK_RAMP) / release.as_secs_f32(), 0.0)
+        }
     }
 }
 
@@ -30,7 +39,7 @@ impl std::str::FromStr for UnisonMode {
     }
 }
 
-pub fn phase(freq: f32, counter: SampleCounter) -> f32 {
+pub fn phase(freq: f32, counter: &SampleCounter) -> f32 {
     (counter.sample() % (counter.samplerate() / freq) as u64) as f32 * freq / counter.samplerate()
 }
 

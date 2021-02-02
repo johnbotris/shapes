@@ -2,7 +2,7 @@ use crate::util::SampleCounter;
 use crate::vec2;
 
 use std::convert::TryFrom;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use cpal::{Sample, SampleRate};
 use wmidi::MidiMessage;
@@ -45,11 +45,11 @@ pub fn do_audio<T: Sample>(
     let pitch = 125.67;
 
     let mut audio = move |sample| {
-        let point = circle(phase(pitch, counter));
-        let level = envelope::linear_pluck(envelope_duration, counter);
+        let point = circle(phase(pitch, &counter));
+        let level = envelope::linear_pluck(envelope_duration, &counter);
         let (l, r) = vec2::scale(point, level);
         counter.inc();
-        if level <= 0.0 {
+        if counter.get_secs() > envelope_duration.as_secs_f32() + 0.1 {
             counter.reset();
         }
         (l, r)
