@@ -91,5 +91,6 @@ fn parse_sample_rate(input: &str) -> Result<SampleRate> {
 
 fn parse_duration(input: &str) -> Result<Duration> {
     let seconds = f32::from_str(input)?;
-    Ok(Duration::from_secs_f32(seconds))
+    // Dont want no divide by zero errors, fix it up here, dont worry about it later ;-)
+    Ok(Duration::from_secs_f32(seconds.max(f32::EPSILON)))
 }
