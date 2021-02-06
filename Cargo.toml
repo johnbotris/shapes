@@ -1,7 +1,7 @@
 [package]
 name = "shapes"
 description = "A synth made of shapes"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["John Botris <johnmorris@tuta.io>"]
 edition = "2018"
 
