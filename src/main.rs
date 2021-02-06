@@ -7,19 +7,17 @@
 
 mod constants;
 mod engine;
-mod fixed_point;
 mod opts;
 mod queue;
 mod synthesis;
 mod util;
 mod vec2;
 
-use std::sync::mpsc;
 use std::thread;
 
 use anyhow::{anyhow, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{Host, SampleFormat};
+use cpal::Host;
 use midir::{MidiInput, MidiInputPort};
 
 const MIDI_INPUT_NAME: &str = env!("CARGO_PKG_NAME");
