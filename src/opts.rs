@@ -1,6 +1,9 @@
 use crate::constants::*;
 use anyhow::Result;
 use cpal::{ChannelCount, SampleRate};
+use std::convert::TryFrom;
+use std::time::Duration;
+
 use std::str::FromStr;
 use structopt::StructOpt;
 
@@ -19,13 +22,13 @@ pub struct Opts {
     pub buffer_size: Option<u32>,
 
     /// Number of available voices.
-    ///     When unison mode is "unison", 0 will generate a single voice.
-    ///     When unison mode is "poly", 0 will allow unlimited voices.
+    ///     When unison mode is "unison", 0 means a single voice.
+    ///     When unison mode is "poly", 0 means maximum voices
     #[structopt(short = "o", long, default_value = "0")]
     pub voices: u64,
 
     /// Unison mode. options: u|unison, p|poly
-    #[structopt(short, long, parse(try_from_str), default_value = "unison")]
+    #[structopt(short, long, parse(try_from_str), default_value = "poly")]
     pub unison_mode: crate::synthesis::UnisonMode,
 
     /// Output device to connect to
@@ -59,6 +62,22 @@ pub struct Opts {
     /// Output less information, can be passed multiple times
     #[structopt(short, parse(from_occurrences))]
     pub quiet: u64,
+
+    /// Attack in seconds
+    #[structopt(long, parse(try_from_str = parse_duration), default_value = "0.05")]
+    pub attack: Duration,
+
+    /// Decay in seconds
+    #[structopt(long, parse(try_from_str = parse_duration), default_value = "0.05")]
+    pub decay: Duration,
+
+    /// Sustain level
+    #[structopt(long, default_value = "0.9")]
+    pub sustain: f32,
+
+    /// Release in seconds
+    #[structopt(long, parse(try_from_str = parse_duration), default_value = "1.0")]
+    pub release: Duration,
 }
 
 /// Get and also validate CLI options
@@ -68,4 +87,9 @@ pub fn getopts() -> Opts {
 
 fn parse_sample_rate(input: &str) -> Result<SampleRate> {
     Ok(SampleRate(u32::from_str(input)?))
+}
+
+fn parse_duration(input: &str) -> Result<Duration> {
+    let seconds = f32::from_str(input)?;
+    Ok(Duration::from_secs_f32(seconds))
 }

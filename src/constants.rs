@@ -1,1 +1,1 @@
-pub const MAX_VOICES: usize = 16;
+pub const MAX_VOICES: usize = 24;

@@ -59,41 +59,53 @@ pub fn do_audio<T: Sample>(
 
     let master_gain = opts.master_gain;
 
+    let attack = opts.attack;
+    let decay = opts.decay;
+    let sustain = opts.sustain;
+    let release = opts.release;
+
     let mut voices = (0..num_voices)
         .map(|_| Voice {
             note: Note::C0,
-            envelope: Envelope::init(),
+            envelope: Envelope::new(attack, decay, sustain, release),
         })
         .collect::<Vec<Voice>>();
 
     let mut next_voice_idx = 0;
 
+    let lfo_rate = 1.0;
+    let lfo_amt = 0.0;
+
     let mut audio = move |timer: &SampleTimer| {
-        if let Ok(message) = receiver.try_recv() {
+        while let Ok(message) = receiver.try_recv() {
             match message {
                 Message::NoteOn(note) => {
-                    let ref mut voice = voices[next_voice_idx % num_voices];
+                    let voice: &mut Voice = match voices.iter_mut().find(|v| v.note == note) {
+                        Some(voice) => voice,
+                        None => {
+                            let ref mut voice = voices[next_voice_idx % num_voices];
+                            next_voice_idx += 1;
+                            voice
+                        }
+                    };
 
                     voice.note = note;
-                    voice.envelope.sample_start = timer.sample();
-                    voice.envelope.gate = true;
-                    voice.envelope.release = envelope_duration;
-
+                    voice.envelope.hold(timer);
                     next_voice_idx += 1;
                 }
                 Message::NoteOff(note) => {
                     for voice in &mut voices {
                         if voice.note == note {
-                            voice.envelope.gate = false;
+                            voice.envelope.release(timer);
                         }
                     }
                 }
             };
-        };
+        }
 
         let (mut left, mut right) = (0.0, 0.0);
 
-        let lfo = f32::sin(phase(3.0, timer)) * 4.0;
+        let lfo = f32::sin(phase(lfo_rate, timer)) * lfo_amt;
 
         for voice in voices.iter() {
             let level = voice.envelope.get(timer);

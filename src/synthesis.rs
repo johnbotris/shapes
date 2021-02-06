@@ -6,39 +6,72 @@ use core::f32::consts::PI;
 use std::time::Duration;
 use wmidi::Note;
 
-const PLUCK_RAMP: f32 = 0.005;
+pub enum EnvelopeState {
+    Held(u64),
+    Released(f32, u64),
+    Bypass,
+    Off,
+}
 
 pub struct Envelope {
-    pub sample_start: u64,
-    pub gate: bool,
-    pub release: Duration,
+    state: EnvelopeState,
+    attack: Duration,
+    decay: Duration,
+    sustain_level: f32,
+    release: Duration,
 }
 
 impl Envelope {
-    pub fn init() -> Self {
+    pub fn new(attack: Duration, decay: Duration, sustain_level: f32, release: Duration) -> Self {
         Self {
-            sample_start: u64::MAX,
-            gate: false,
-            release: Duration::from_secs(0),
-        }
-    }
-    pub fn new(sample_start: u64, gate: bool, release: Duration) -> Self {
-        Self {
-            sample_start,
-            gate,
+            state: EnvelopeState::Off,
+            attack,
+            decay,
+            sustain_level,
             release,
         }
     }
+
+    // TODO how slow is this actually?
     pub fn get(&self, timer: &SampleTimer) -> f32 {
-        let elapsed = timer.time_since(self.sample_start);
-        if elapsed <= PLUCK_RAMP {
-            elapsed / PLUCK_RAMP
-        } else {
-            f32::max(
-                1.0 - (elapsed - PLUCK_RAMP) / self.release.as_secs_f32(),
-                0.0,
-            )
+        use EnvelopeState::*;
+
+        match &self.state {
+            Held(start) => {
+                let elapsed = timer.time_since(*start);
+                let attack = self.attack.as_secs_f32();
+                let decay = self.decay.as_secs_f32();
+
+                let attack_completed = (elapsed / attack).clamp(0.0, 1.0);
+                let decay_completed = ((elapsed - attack) / decay).clamp(0.0, 1.0);
+
+                attack_completed - (1.0 - self.sustain_level) * decay_completed
+            }
+            Released(level_at_release, start) => {
+                let elapsed = timer.time_since(*start);
+                let completion = (elapsed / self.release.as_secs_f32()).clamp(0.0, 1.0);
+                level_at_release - (completion / (level_at_release + f32::EPSILON))
+            }
+            Bypass => 1.0,
+            Off => 0.0,
         }
+    }
+
+    pub fn hold(&mut self, timer: &SampleTimer) {
+        self.state = EnvelopeState::Held(timer.sample());
+    }
+
+    pub fn release(&mut self, timer: &SampleTimer) {
+        let level = self.get(timer);
+        self.state = EnvelopeState::Released(level, timer.sample());
+    }
+
+    pub fn disable(&mut self) {
+        self.state = EnvelopeState::Off;
+    }
+
+    pub fn bypass(&mut self) {
+        self.state = EnvelopeState::Bypass;
     }
 }
 
