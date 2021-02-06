@@ -179,7 +179,7 @@ fn run(host: Host, opts: opts::Opts) -> Result<!> {
             )
         })?;
 
-    let errfun = |err| log::warn!("an error occurred on the output audio stream: {}", err);
+    let errfun = |err| log::error!("Audio output stream error: {}", err);
     let stream = device.build_output_stream(
         &config,
         engine::do_audio::<f32>(
