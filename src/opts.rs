@@ -78,6 +78,15 @@ pub struct Opts {
     /// Release in seconds
     #[structopt(long, parse(try_from_str = parse_duration), default_value = "1.0")]
     pub release: Duration,
+
+    #[structopt(long, default_value = "4.0")]
+    pub corners: f32,
+
+    #[structopt(long, default_value = "0.0")]
+    pub mod_rate: f32,
+
+    #[structopt(long, default_value = "0.0")]
+    pub mod_amount: f32,
 }
 
 /// Get and also validate CLI options

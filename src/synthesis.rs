@@ -84,6 +84,7 @@ impl Envelope {
 pub struct Voice {
     pub note: Note,
     pub envelope: Envelope,
+    pub lfo_timer: SampleTimer,
 }
 
 #[derive(Debug)]

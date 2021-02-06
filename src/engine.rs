@@ -63,18 +63,19 @@ pub fn do_audio<T: Sample>(
     let decay = opts.decay;
     let sustain = opts.sustain;
     let release = opts.release;
+    let corners = opts.corners;
+    let mod_rate = opts.mod_rate;
+    let mod_amount = opts.mod_amount;
 
     let mut voices = (0..num_voices)
         .map(|_| Voice {
             note: Note::C0,
             envelope: Envelope::new(attack, decay, sustain, release),
+            lfo_timer: SampleTimer::new(samplerate.0),
         })
         .collect::<Vec<Voice>>();
 
     let mut next_voice_idx = 0;
-
-    let lfo_rate = 1.0;
-    let lfo_amt = 0.0;
 
     let mut audio = move |timer: &SampleTimer| {
         while let Ok(message) = receiver.try_recv() {
@@ -91,6 +92,7 @@ pub fn do_audio<T: Sample>(
 
                     voice.note = note;
                     voice.envelope.hold(timer);
+                    voice.lfo_timer.reset();
                     next_voice_idx += 1;
                 }
                 Message::NoteOff(note) => {
@@ -105,15 +107,17 @@ pub fn do_audio<T: Sample>(
 
         let (mut left, mut right) = (0.0, 0.0);
 
-        let lfo = f32::sin(phase(lfo_rate, timer)) * lfo_amt;
-
-        for voice in voices.iter() {
+        for voice in voices.iter_mut() {
             let level = voice.envelope.get(timer);
             if level > 0.0 {
+                let lfo = f32::sin(2.0 * core::f32::consts::PI * phase(mod_rate, &voice.lfo_timer))
+                    * mod_amount;
                 let (l, r) = vec2::scale(
-                    polygon(100.0 + lfo, phase(voice.note.to_freq_f32(), timer)),
+                    polygon(corners + lfo, phase(voice.note.to_freq_f32(), timer)),
                     level,
                 );
+
+                voice.lfo_timer += 1;
                 left += l;
                 right += r;
             }
