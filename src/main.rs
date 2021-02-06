@@ -5,6 +5,7 @@
 #![feature(destructuring_assignment)]
 #![feature(str_split_once)]
 
+mod constants;
 mod engine;
 mod fixed_point;
 mod opts;
@@ -13,6 +14,7 @@ mod synthesis;
 mod util;
 mod vec2;
 
+use std::sync::mpsc;
 use std::thread;
 
 use anyhow::{anyhow, Result};
@@ -166,8 +168,10 @@ fn run(host: Host, opts: opts::Opts) -> Result<!> {
         }
     );
 
+    let (sender, receiver) = std::sync::mpsc::channel();
+
     let _connection = input
-        .connect(&port, MIDI_INPUT_NAME, engine::handle_midi_input, ())
+        .connect(&port, MIDI_INPUT_NAME, engine::handle_midi_input, sender)
         .map_err(|e| {
             anyhow!(
                 "Couldn't connect to MIDI output port \"{}\": {}",
@@ -182,7 +186,8 @@ fn run(host: Host, opts: opts::Opts) -> Result<!> {
         engine::do_audio::<f32>(
             config.channels as usize,
             config.sample_rate,
-            opts.master_gain,
+            &opts,
+            receiver,
         ),
         errfun,
     )?;

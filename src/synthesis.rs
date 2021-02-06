@@ -1,25 +1,50 @@
-use crate::util::SampleCounter;
+use crate::util::SampleTimer;
 use crate::vec2::{self, Vec2};
 
 use anyhow::{anyhow, Result};
 use core::f32::consts::PI;
+use std::time::Duration;
+use wmidi::Note;
 
-pub mod envelope {
-    use super::SampleCounter;
-    use std::time::Duration;
+const PLUCK_RAMP: f32 = 0.005;
 
-    const PLUCK_RAMP: f32 = 0.005;
+pub struct Envelope {
+    pub sample_start: u64,
+    pub gate: bool,
+    pub release: Duration,
+}
 
-    pub fn linear_pluck(release: Duration, counter: &SampleCounter) -> f32 {
-        let elapsed = counter.get_secs();
-        if elapsed <= PLUCK_RAMP {
-            // Attack
-            elapsed / PLUCK_RAMP
-        } else {
-            // Release
-            f32::max(1.0 - (elapsed - PLUCK_RAMP) / release.as_secs_f32(), 0.0)
+impl Envelope {
+    pub fn init() -> Self {
+        Self {
+            sample_start: u64::MAX,
+            gate: false,
+            release: Duration::from_secs(0),
         }
     }
+    pub fn new(sample_start: u64, gate: bool, release: Duration) -> Self {
+        Self {
+            sample_start,
+            gate,
+            release,
+        }
+    }
+    pub fn get(&self, timer: &SampleTimer) -> f32 {
+        let elapsed = timer.time_since(self.sample_start);
+        if elapsed <= PLUCK_RAMP {
+            elapsed / PLUCK_RAMP
+        } else {
+            f32::max(
+                1.0 - (elapsed - PLUCK_RAMP) / self.release.as_secs_f32(),
+                0.0,
+            )
+        }
+    }
+}
+
+pub struct Voice {
+    pub note: Note,
+    pub envelope: Envelope,
 }
 
 #[derive(Debug)]
@@ -39,7 +64,7 @@ impl std::str::FromStr for UnisonMode {
     }
 }
 
-pub fn phase(freq: f32, counter: &SampleCounter) -> f32 {
+pub fn phase(freq: f32, counter: &SampleTimer) -> f32 {
     (counter.sample() % (counter.samplerate() / freq) as u64) as f32 * freq / counter.samplerate()
 }
 
