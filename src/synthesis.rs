@@ -46,15 +46,16 @@ impl Envelope {
                 let attack_completed = (elapsed / attack).clamp(0.0, 1.0);
                 let decay_completed = ((elapsed - attack) / decay).clamp(0.0, 1.0);
 
-                let attack_amount = maths::lerp(*level_at_hold, 1.0, attack_completed);
-                let decay_amount = maths::lerp(0.0, 1.0 - self.sustain_level, decay_completed);
+                let attack_amount = maths::cosine_lerp(*level_at_hold, 1.0, attack_completed);
+                let decay_amount =
+                    maths::cosine_lerp(0.0, 1.0 - self.sustain_level, decay_completed);
 
                 attack_amount - decay_amount
             }
             Released(level_at_release, start) => {
                 let elapsed = timer.time_since(*start);
                 let completed = (elapsed / self.release.as_secs_f32()).clamp(0.0, 1.0);
-                maths::lerp(*level_at_release, 0.0, completed)
+                maths::cosine_lerp(*level_at_release, 0.0, completed)
             }
             Bypass => 1.0,
             Off => 0.0,
