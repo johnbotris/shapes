@@ -93,11 +93,15 @@ pub fn do_audio<T: Sample>(
 
         let (mut left, mut right) = (0.0, 0.0);
 
+        let lfo = f32::sin(phase(3.0, timer)) * 4.0;
+
         for voice in voices.iter() {
             let level = voice.envelope.get(timer);
             if level > 0.0 {
-                let (l, r) =
-                    vec2::scale(polygon(4.0, phase(voice.note.to_freq_f32(), timer)), level);
+                let (l, r) = vec2::scale(
+                    polygon(4.0 + lfo, phase(voice.note.to_freq_f32(), timer)),
+                    level,
+                );
                 left += l;
                 right += r;
             }
