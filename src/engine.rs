@@ -111,7 +111,7 @@ pub fn do_audio<T: Sample>(
             let level = voice.envelope.get(timer);
             if level > 0.0 {
                 let (l, r) = vec2::scale(
-                    polygon(4.0 + lfo, phase(voice.note.to_freq_f32(), timer)),
+                    polygon(100.0 + lfo, phase(voice.note.to_freq_f32(), timer)),
                     level,
                 );
                 left += l;

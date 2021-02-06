@@ -1,3 +1,4 @@
+use crate::maths;
 use crate::util::SampleTimer;
 use crate::vec2::{self, Vec2};
 
@@ -7,7 +8,7 @@ use std::time::Duration;
 use wmidi::Note;
 
 pub enum EnvelopeState {
-    Held(u64),
+    Held(f32, u64),
     Released(f32, u64),
     Bypass,
     Off,
@@ -37,7 +38,7 @@ impl Envelope {
         use EnvelopeState::*;
 
         match &self.state {
-            Held(start) => {
+            Held(level_at_hold, start) => {
                 let elapsed = timer.time_since(*start);
                 let attack = self.attack.as_secs_f32();
                 let decay = self.decay.as_secs_f32();
@@ -45,12 +46,15 @@ impl Envelope {
                 let attack_completed = (elapsed / attack).clamp(0.0, 1.0);
                 let decay_completed = ((elapsed - attack) / decay).clamp(0.0, 1.0);
 
-                attack_completed - (1.0 - self.sustain_level) * decay_completed
+                let attack_amount = maths::lerp(*level_at_hold, 1.0, attack_completed);
+                let decay_amount = maths::lerp(0.0, 1.0 - self.sustain_level, decay_completed);
+
+                attack_amount - decay_amount
             }
             Released(level_at_release, start) => {
                 let elapsed = timer.time_since(*start);
-                let completion = (elapsed / self.release.as_secs_f32()).clamp(0.0, 1.0);
-                level_at_release - (completion / (level_at_release + f32::EPSILON))
+                let completed = (elapsed / self.release.as_secs_f32()).clamp(0.0, 1.0);
+                maths::lerp(*level_at_release, 0.0, completed)
             }
             Bypass => 1.0,
             Off => 0.0,
@@ -58,7 +62,8 @@ impl Envelope {
     }
 
     pub fn hold(&mut self, timer: &SampleTimer) {
-        self.state = EnvelopeState::Held(timer.sample());
+        let level = self.get(timer);
+        self.state = EnvelopeState::Held(level, timer.sample());
     }
 
     pub fn release(&mut self, timer: &SampleTimer) {

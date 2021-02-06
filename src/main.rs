@@ -7,11 +7,12 @@
 
 mod constants;
 mod engine;
+mod maths;
 mod opts;
 mod queue;
 mod synthesis;
 mod util;
-mod vec2;
+pub use maths::vec2;
 
 use std::thread;
 
