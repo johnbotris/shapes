@@ -83,6 +83,7 @@ impl Envelope {
 
 pub struct Voice {
     pub note: Note,
+    pub level: f32,
     pub envelope: Envelope,
     pub lfo_timer: SampleTimer,
 }

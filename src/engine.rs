@@ -8,10 +8,11 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use cpal::{Sample, SampleRate};
-use wmidi::{MidiMessage, Note};
+use wmidi::{MidiMessage, Note, U7};
 
 pub enum Message {
-    NoteOn(wmidi::Note),
+    /// Note, Velocity except velocity is a value between 0 and 1
+    NoteOn(wmidi::Note, f32),
     NoteOff(wmidi::Note),
 }
 
@@ -30,9 +31,12 @@ pub fn handle_midi_input(timestamp: u64, message: &[u8], sender: &mut mpsc::Send
         }
     };
 
+    // TODO check if channel is right channel?
     match midi {
         MidiMessage::NoteOn(channel, note, velocity) => {
-            sender.send(Message::NoteOn(note)).unwrap();
+            // TODO We should get the level as the logarithm cause i think linearly mapping velocity doesn't sound right
+            let level = u8::from(velocity) as f32 / 127.0;
+            sender.send(Message::NoteOn(note, level)).unwrap();
         }
         MidiMessage::NoteOff(channel, note, velocity) => {
             sender.send(Message::NoteOff(note)).unwrap();
@@ -70,6 +74,7 @@ pub fn do_audio<T: Sample>(
     let mut voices = (0..num_voices)
         .map(|_| Voice {
             note: Note::C0,
+            level: 0.0,
             envelope: Envelope::new(attack, decay, sustain, release),
             lfo_timer: SampleTimer::new(samplerate.0),
         })
@@ -80,7 +85,7 @@ pub fn do_audio<T: Sample>(
     let mut audio = move |timer: &SampleTimer| {
         while let Ok(message) = receiver.try_recv() {
             match message {
-                Message::NoteOn(note) => {
+                Message::NoteOn(note, level) => {
                     let voice: &mut Voice = match voices.iter_mut().find(|v| v.note == note) {
                         Some(voice) => voice,
                         None => {
@@ -91,6 +96,7 @@ pub fn do_audio<T: Sample>(
                     };
 
                     voice.note = note;
+                    voice.level = level;
                     voice.envelope.hold(timer);
                     voice.lfo_timer.reset();
                     next_voice_idx += 1;
@@ -114,7 +120,7 @@ pub fn do_audio<T: Sample>(
                     * mod_amount;
                 let (l, r) = vec2::scale(
                     polygon(corners + lfo, phase(voice.note.to_freq_f32(), timer)),
-                    level,
+                    level * voice.level,
                 );
 
                 voice.lfo_timer += 1;
